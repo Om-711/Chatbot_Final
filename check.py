@@ -112,13 +112,13 @@ chunks = splitter.create_documents([combined_text])
 # embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
 embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 
-vector_store = None
-if vector_store is None:
-    try:
-        vector_store = FAISS.load_local("faiss_index", embeddings)
-    except:
-        vector_store = FAISS.from_documents(chunks, embeddings)
-        vector_store.save_local("faiss_index")
+# vector_store = None
+# if vector_store is None:
+#     try:
+#         vector_store = FAISS.load_local("faiss_index", embeddings)
+#     except:
+#         vector_store = FAISS.from_documents(chunks, embeddings)
+#         vector_store.save_local("faiss_index")
 
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)
 
@@ -135,6 +135,8 @@ async def chat_ai_async(user_id: str, question: str):
         return {"message": "No query found for user.", "options": ["Back"]}
 
     try:
+        vector_store = FAISS.from_documents(chunks, embeddings)
+        vector_store.save_local("faiss_index")
         # if user ask same question again then use cached result to answer it
         docs = cached_search(question)
         context = "\n".join([d.page_content for d in docs])
@@ -240,3 +242,4 @@ async def chat(user_id: str, option: str):
 async def chat_ai_endpoint(user_id: str, question: str):
     resp = await chat_ai_async(user_id, question)
     return JSONResponse(resp)
+
