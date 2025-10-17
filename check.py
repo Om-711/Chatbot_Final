@@ -14,7 +14,7 @@ import pandas as pd
 from pymongo import MongoClient
 import numpy as np
 from functools import lru_cache
-
+from dotenv import load_dotenv
 
 app = FastAPI()
 
@@ -31,8 +31,13 @@ app.add_middleware(
 )
 
 
-os.environ["GOOGLE_API_KEY"] = 'AIzaSyAIzbhiQ1Ga-XfzozyoYugrrhwAXtdrxB8' 
-MONGODB_URI = "mongodb+srv://arshadmansuri1825:u1AYlNbjuA5FpHbb@cluster1.2majmfd.mongodb.net/ECommerce"
+
+load_dotenv()
+
+
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY 
+MONGODB_URI = os.environ.get("MONGODB_URI")
 
 
 
@@ -112,13 +117,13 @@ chunks = splitter.create_documents([combined_text])
 # embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
 embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# vector_store = None
-# if vector_store is None:
-#     try:
-#         vector_store = FAISS.load_local("faiss_index", embeddings)
-#     except:
-#         vector_store = FAISS.from_documents(chunks, embeddings)
-#         vector_store.save_local("faiss_index")
+vector_store = None
+if vector_store is None:
+    try:
+        vector_store = FAISS.load_local("faiss_index", embeddings)
+    except:
+        vector_store = FAISS.from_documents(chunks, embeddings)
+        vector_store.save_local("faiss_index")
 
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)
 
@@ -135,8 +140,6 @@ async def chat_ai_async(user_id: str, question: str):
         return {"message": "No query found for user.", "options": ["Back"]}
 
     try:
-        vector_store = FAISS.from_documents(chunks, embeddings)
-        vector_store.save_local("faiss_index")
         # if user ask same question again then use cached result to answer it
         docs = cached_search(question)
         context = "\n".join([d.page_content for d in docs])
@@ -242,4 +245,3 @@ async def chat(user_id: str, option: str):
 async def chat_ai_endpoint(user_id: str, question: str):
     resp = await chat_ai_async(user_id, question)
     return JSONResponse(resp)
-
