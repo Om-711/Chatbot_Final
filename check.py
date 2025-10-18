@@ -13,6 +13,7 @@ import pandas as pd
 from pymongo import MongoClient
 from functools import lru_cache
 from dotenv import load_dotenv
+import uvicorn
 
 app = FastAPI()
 
@@ -252,3 +253,4 @@ async def chat(user_id: str, option: str):
 async def chat_ai_endpoint(user_id: str, question: str):
     resp = await chat_ai_async(user_id, question)
     return JSONResponse(resp)
+
