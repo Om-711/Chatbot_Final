@@ -1,15 +1,16 @@
 fastapi
 uvicorn
-python-dotenv
-pymongo
-pandas
-numpy
-faiss-cpu
 langchain
 langchain-core
 langchain-community
 langchain-google-genai
-langchain-text-splitter
-# lightweight helpers
-pydantic
-
+google-generativeai
+faiss-cpu
+pandas
+numpy
+fuzzywuzzy
+scikit-learn
+scipy
+python-dotenv
+pymongo
+python-multipart
