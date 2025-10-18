@@ -8,6 +8,7 @@ pydantic
 sentence-transformers
 faiss-cpu
 langchain
+langchain-core
 langchain-community
 langchain-google-genai
 
