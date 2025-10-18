@@ -4,8 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import SentenceTransformerEmbeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
+# from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain.chains import LLMChain
 from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
@@ -64,11 +64,12 @@ product_text, order_text = fetch_data()
 splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 docs = splitter.create_documents([product_text])
 
-embeddings = SentenceTransformerEmbeddings(
-    model_name="all-MiniLM-L6-v2",
-    model_kwargs={"device": "cpu"},
-    encode_kwargs={"normalize_embeddings": True}
-)
+# embeddings = SentenceTransformerEmbeddings(
+#     model_name="all-MiniLM-L6-v2",
+#     model_kwargs={"device": "cpu"},
+#     encode_kwargs={"normalize_embeddings": True}
+# )
+embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
 
     
 
@@ -141,3 +142,4 @@ async def chat(user_id: str, option: str):
         return await chat(user_id, "main")
 
     return JSONResponse({"message": "Invalid option.", "options": ["Back"]})
+
