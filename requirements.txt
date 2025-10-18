@@ -9,8 +9,7 @@ faiss-cpu
 pandas
 numpy
 fuzzywuzzy
-scikit-learn
-scipy
 python-dotenv
 pymongo
 python-multipart
+
