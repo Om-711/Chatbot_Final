@@ -3,11 +3,12 @@ uvicorn[standard]
 pandas
 numpy
 python-dotenv
-pymongo1
+pymongo
 pydantic
 sentence-transformers
 faiss-cpu
 langchain
 langchain-community
 langchain-google-genai
+
 
