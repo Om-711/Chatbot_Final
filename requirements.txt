@@ -1,11 +1,11 @@
 fastapi>=0.95
 uvicorn[standard]>=0.22
-pymongo>=4.0
-bson>=0.5.10
-pandas>=2.0
+pymongo>=4.3.0
+dnspython>=2.3.0          # needed for mongodb+srv URIs
 sentence-transformers>=2.2.2
 faiss-cpu>=1.7.4
 langchain>=0.0.300
 langchain-core>=0.0.1
 langchain-community>=0.1.0
 langchain-google-genai>=0.1.0
+gunicorn>=20.1.0
