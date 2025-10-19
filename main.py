@@ -1,5 +1,7 @@
 # app.py
 import os
+import time
+import traceback
 from functools import lru_cache
 from typing import List
 
@@ -7,18 +9,17 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from pydantic import BaseModel
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-# langchain imports (match your installed packages)
+# langchain imports
 from langchain_core.prompts import PromptTemplate
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_classic.chains import LLMChain
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# --- Configuration (use Render environment variables) ---
+# --- Configuration (via env variables) ---
 MONGODB_URI = os.environ.get("MONGODB_URI")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 FAISS_INDEX_PATH = os.environ.get("FAISS_INDEX_PATH", "faiss_index")
@@ -40,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Helpers: lazy singletons to save memory ---
+# --- Lazy singletons to reduce memory overhead ---
 
 
 @lru_cache(maxsize=1)
@@ -52,35 +53,35 @@ def get_mongo_client() -> MongoClient:
 
 @lru_cache(maxsize=1)
 def get_embeddings():
-    # Cached and instanced once per process
+    # small model, cached once
     return SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 
 
 @lru_cache(maxsize=1)
 def get_vector_store():
     embeddings = get_embeddings()
-    # Load local index created offline
     try:
         vs = FAISS.load_local(FAISS_INDEX_PATH, embeddings)
+        return vs
     except Exception as e:
+        # surface clear message but do not crash import-time (we raise so endpoints can handle)
         raise RuntimeError(f"Failed to load FAISS index from {FAISS_INDEX_PATH}: {e}")
-    return vs
 
 
 @lru_cache(maxsize=1)
 def get_llm():
-    # Keep LLM instance once per process
+    # cached LLM client
     return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)
 
 
-# Small cache for similarity queries; keep size bounded
+# bounded cache for searches
 @lru_cache(maxsize=128)
 def cached_search(query: str):
     vs = get_vector_store()
     return vs.similarity_search(query, k=5)
 
 
-# Prompt template (shared)
+# Prompt template
 PROMPT = PromptTemplate(
     template="""
 You are a helpful chatbot for an e-commerce website. Use ONLY the information found in the provided context. Answer concisely in 1–2 lines.
@@ -111,7 +112,7 @@ Order Data : {orders}
 )
 
 
-# --- Lightweight DB snippets on demand (avoid loading full collections) ---
+# --- DB snippet fetchers (tiny payloads) ---
 def fetch_product_snippet(limit: int = 10) -> str:
     client = get_mongo_client()
     db = client["ECommerce"]
@@ -134,7 +135,6 @@ def fetch_user_orders_snippet(user_id: str, limit: int = 5) -> str:
     db = client["ECommerce"]
     col = db["users"]
 
-    # Try to convert to ObjectId; if fails, try to query by stored string _id
     try:
         uid = ObjectId(user_id)
     except Exception:
@@ -149,13 +149,20 @@ def fetch_user_orders_snippet(user_id: str, limit: int = 5) -> str:
     return "\n".join(parts)
 
 
-# --- Core chat function ---
+# --- Robust chat (tries multiple invocation methods, logs tracebacks) ---
 async def chat_ai_async(user_id: str, question: str):
+    start_ts = time.time()
     if not question:
         return {"message": "No query found for user.", "options": ["Back"]}
 
     try:
-        docs = cached_search(question)
+        # similarity search (safe)
+        try:
+            docs = cached_search(question)
+        except Exception as e:
+            print("DEBUG: vector search failed:", repr(e))
+            docs = []
+
         context = "\n".join([d.page_content for d in docs]) if docs else ""
         products_snip = fetch_product_snippet(limit=10)
         orders_snip = fetch_user_orders_snippet(user_id, limit=5)
@@ -163,18 +170,60 @@ async def chat_ai_async(user_id: str, question: str):
         llm = get_llm()
         chain = LLMChain(llm=llm, prompt=PROMPT)
 
-        result = await chain.ainvoke(
-            {"context": context, "question": question, "products": products_snip, "orders": orders_snip}
-        )
+        result = None
+        exc = None
+        try:
+            if hasattr(chain, "ainvoke"):
+                result = await chain.ainvoke(
+                    {"context": context, "question": question, "products": products_snip, "orders": orders_snip}
+                )
+            elif hasattr(chain, "invoke"):
+                result = chain.invoke(
+                    {"context": context, "question": question, "products": products_snip, "orders": orders_snip}
+                )
+            else:
+                # fallback: try direct llm predict if chain isn't available
+                prompt_text = PROMPT.format(context=context, question=question, products=products_snip, orders=orders_snip)
+                if hasattr(llm, "apredict"):
+                    result = await llm.apredict(prompt_text)
+                elif hasattr(llm, "predict"):
+                    result = llm.predict(prompt_text)
+                else:
+                    raise RuntimeError("No invocation method available on chain or llm.")
+        except Exception as e:
+            exc = e
+            tb = traceback.format_exc()
+            print("ERROR during LLM invocation:", repr(e))
+            print(tb)
 
-        text = result["text"] if isinstance(result, dict) and "text" in result else str(result)
+        # Normalize result
+        text = ""
+        if isinstance(result, dict):
+            for key in ("text", "output_text", "answer", "response"):
+                if key in result:
+                    text = result[key]
+                    break
+            if not text:
+                text = " ".join([str(v) for v in result.values()])
+        elif isinstance(result, str):
+            text = result
+        elif result is None and exc:
+            text = f"Internal error: {str(exc)}"
+        else:
+            text = str(result)
+
+        duration = time.time() - start_ts
+        print(f"INFO: chat_ai_async finished in {duration:.3f}s; question len={len(question)}; docs={len(docs)}")
         return {"message": text.strip()}
 
     except Exception as e:
+        tb = traceback.format_exc()
+        print("UNHANDLED ERROR in chat_ai_async:", repr(e))
+        print(tb)
         return {"message": f"Internal error: {str(e)}"}
 
 
-# --- API routes (small responses only) ---
+# --- API endpoints ---
 @app.get("/health")
 async def health():
     return JSONResponse({"status": "ok"})
@@ -225,3 +274,32 @@ async def chat_ai_endpoint(user_id: str, question: str):
     resp = await chat_ai_async(user_id, question)
     return JSONResponse(resp)
 
+
+# --- Debug endpoints ---
+@app.get("/debug/search")
+def debug_search(query: str):
+    try:
+        docs = cached_search(query)
+    except Exception as e:
+        tb = traceback.format_exc()
+        return JSONResponse({"ok": False, "error": repr(e), "trace": tb}, status_code=500)
+    snippets = [{"score": getattr(d, "score", None), "text": d.page_content[:800]} for d in docs]
+    return JSONResponse({"ok": True, "count": len(snippets), "snippets": snippets})
+
+
+@app.get("/debug/llm")
+async def debug_llm(prompt: str = "Hello"):
+    try:
+        llm = get_llm()
+        if hasattr(llm, "apredict"):
+            out = await llm.apredict(prompt)
+        elif hasattr(llm, "predict"):
+            out = llm.predict(prompt)
+        else:
+            raise RuntimeError("LLM has no predict/apredict method.")
+        return JSONResponse({"ok": True, "result": out})
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("DEBUG LLM error:", repr(e))
+        print(tb)
+        return JSONResponse({"ok": False, "error": repr(e), "trace": tb}, status_code=500)
