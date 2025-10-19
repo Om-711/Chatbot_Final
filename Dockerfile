@@ -1,28 +1,30 @@
+# Dockerfile — Python 3.11, tuned for Render + common system deps
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Copy only requirements first for better caching
-COPY requirements.txt .
+# Install system packages needed by some python packages (faiss, sentence-transformers)
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential \
+    git \
+    ffmpeg \
+    libsndfile1 \
+    libopenblas-dev \
+    libomp-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# # Install system dependencies needed for FAISS & scientific libraries
-# RUN apt-get update && apt-get install -y \
-#     build-essential \
-#     libopenblas-dev \
-#     git \
-#     && rm -rf /var/lib/apt/lists/*
+# Copy and install python deps
+COPY requirements.txt /app/requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Upgrade pip and install Python dependencies
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy app sources
+COPY . /app
 
-# Copy the rest of the app
-COPY . .
+# Make sure render's $PORT will be used by the start command (Render sets $PORT env).
+EXPOSE 8000
 
-# Expose port 8080 (Render requires binding to $PORT environment variable)
-ENV PORT=8080
-
-# Run the FastAPI app
-CMD ["uvicorn", "check:app", "--host", "0.0.0.0", "--port", "8080"]
-
-
+# Use uvicorn (Render will set $PORT). Use single worker to save memory.
+CMD ["sh", "-lc", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --loop uvloop --ws none"]
