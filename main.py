@@ -15,7 +15,7 @@ from bson.objectid import ObjectId
 from langchain_core.prompts import PromptTemplate
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.chains import LLMChain
+from langchain_classic.chains import LLMChain
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # --- Configuration (use Render environment variables) ---
@@ -224,3 +224,4 @@ async def chat(user_id: str, option: str):
 async def chat_ai_endpoint(user_id: str, question: str):
     resp = await chat_ai_async(user_id, question)
     return JSONResponse(resp)
+
