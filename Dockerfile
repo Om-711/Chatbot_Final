@@ -1,30 +1,21 @@
-# Dockerfile — Python 3.11, tuned for Render + common system deps
-FROM python:3.11-slim
+FROM python:3.10-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install system packages needed by some python packages (faiss, sentence-transformers)
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+COPY requirements.txt /app/
+RUN apt-get update && apt-get install -y \
     build-essential \
     git \
-    ffmpeg \
-    libsndfile1 \
-    libopenblas-dev \
-    libomp-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install python deps
-COPY requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Upgrade pip and set index URL for reliability
+RUN pip install --upgrade pip
+RUN pip config set global.index-url https://pypi.org/simple
 
-# Copy app sources
+RUN pip install -r requirements.txt
+
 COPY . /app
 
-# Make sure render's $PORT will be used by the start command (Render sets $PORT env).
-EXPOSE 8000
+EXPOSE 8080
 
-# Use uvicorn (Render will set $PORT). Use single worker to save memory.
-CMD ["sh", "-lc", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --loop uvloop --ws none"]
+CMD ["uvicorn", "check:app", "--host", "0.0.0.0", "--port", "8080"]
